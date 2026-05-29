@@ -1,6 +1,0 @@
-{
-  "build": {
-    "builder": "NIXPACKS"
-  },
-  "phpExtensions": ["pdo_mysql", "pdo_pgsql", "pdo_sqlite"]
-}

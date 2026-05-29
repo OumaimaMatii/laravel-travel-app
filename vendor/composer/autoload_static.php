@@ -550,6 +550,7 @@ class ComposerStaticInit53b5d56b3b7e3cbac1713e68c8850f6c
         'App\\Http\\Controllers\\Api\\ReservationController' => __DIR__ . '/../..' . '/app/Http/Controllers/Api/ReservationController.php',
         'App\\Http\\Controllers\\Api\\StatutForfaitController' => __DIR__ . '/../..' . '/app/Http/Controllers/Api/StatutForfaitController.php',
         'App\\Http\\Controllers\\Api\\StatutSurMesureController' => __DIR__ . '/../..' . '/app/Http/Controllers/Api/StatutSurMesureController.php',
+        'App\\Http\\Controllers\\Api\\SurMesureController' => __DIR__ . '/../..' . '/app/Http/Controllers/Api/SurMesureController.php',
         'App\\Http\\Controllers\\Api\\TransportController' => __DIR__ . '/../..' . '/app/Http/Controllers/Api/TransportController.php',
         'App\\Http\\Controllers\\Api\\TypeChambreController' => __DIR__ . '/../..' . '/app/Http/Controllers/Api/TypeChambreController.php',
         'App\\Http\\Controllers\\Api\\TypeForfaitController' => __DIR__ . '/../..' . '/app/Http/Controllers/Api/TypeForfaitController.php',

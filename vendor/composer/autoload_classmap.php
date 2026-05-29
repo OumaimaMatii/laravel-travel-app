@@ -20,6 +20,7 @@ return array(
     'App\\Http\\Controllers\\Api\\ReservationController' => $baseDir . '/app/Http/Controllers/Api/ReservationController.php',
     'App\\Http\\Controllers\\Api\\StatutForfaitController' => $baseDir . '/app/Http/Controllers/Api/StatutForfaitController.php',
     'App\\Http\\Controllers\\Api\\StatutSurMesureController' => $baseDir . '/app/Http/Controllers/Api/StatutSurMesureController.php',
+    'App\\Http\\Controllers\\Api\\SurMesureController' => $baseDir . '/app/Http/Controllers/Api/SurMesureController.php',
     'App\\Http\\Controllers\\Api\\TransportController' => $baseDir . '/app/Http/Controllers/Api/TransportController.php',
     'App\\Http\\Controllers\\Api\\TypeChambreController' => $baseDir . '/app/Http/Controllers/Api/TypeChambreController.php',
     'App\\Http\\Controllers\\Api\\TypeForfaitController' => $baseDir . '/app/Http/Controllers/Api/TypeForfaitController.php',
