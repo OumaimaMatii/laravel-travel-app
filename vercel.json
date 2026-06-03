@@ -1,11 +1,5 @@
 {
     "version": 2,
-    "builds": [
-        {
-            "src": "public/index.php",
-            "use": "vercel-php@8.3"
-        }
-    ],
     "routes": [
         {
             "src": "/(.*)",
@@ -13,8 +7,6 @@
         }
     ],
     "env": {
-        "APP_ENV": "production",
-        "APP_CONFIG_CACHE": "/tmp/config.php",
-        "APP_ROUTES_CACHE": "/tmp/routes.php"
+        "APP_ENV": "production"
     }
 }
