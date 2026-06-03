@@ -1,35 +1,17 @@
 <?php
+// هذا الملف هو الحل السحري الذي يشتغل مع Larabel 12
+define('LARAVEL_START', microtime(true));
 
+require __DIR__ . '/../vendor/autoload.php';
 
-error_reporting(E_ALL);
-ini_set('display_errors', 1);
-
-
-$projectPath = __DIR__ . '/..';
-
-
-$autoloader = require $projectPath . '/vendor/autoload.php';
-
-
-$app = require_once $projectPath . '/bootstrap/app.php';
-
-
-$app->useStoragePath($projectPath . '/storage');
-
+$app = require_once __DIR__ . '/../bootstrap/app.php';
 
 $kernel = $app->make(Illuminate\Contracts\Http\Kernel::class);
 
-try {
-    $response = $kernel->handle(
-        $request = Illuminate\Http\Request::capture()
-    );
-    
-    $response->send();
-    $kernel->terminate($request, $response);
-    
-} catch (Exception $e) {
-    http_response_code(500);
-    echo "Error: " . $e->getMessage();
-    echo "\nFile: " . $e->getFile();
-    echo "\nLine: " . $e->getLine();
-}
+$response = $kernel->handle(
+    $request = Illuminate\Http\Request::capture()
+);
+
+$response->send();
+
+$kernel->terminate($request, $response);
