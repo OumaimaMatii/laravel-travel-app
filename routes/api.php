@@ -13,7 +13,7 @@ use App\Http\Controllers\Api\MediaController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\ReservationController;
 use App\Http\Controllers\Api\StatutForfaitController;
-use App\Http\Controllers\Api\StatutSurMesureController; 
+use App\Http\Controllers\Api\StatutSurMesureController;
 use App\Http\Controllers\Api\TransportController;
 use App\Http\Controllers\Api\TypeChambreController;
 use App\Http\Controllers\Api\TypeForfaitController;
@@ -27,10 +27,9 @@ use App\Http\Controllers\Api\VoyageSurMesureController;
 use App\Http\Controllers\Api\VoyageTransportController;
 use App\Http\Controllers\Api\VoyageurController;
 use App\Http\Controllers\Api\SurMesureController;
+use App\Http\Controllers\Api\UserController;
 
-// Routes PUBLIQUES (non authentifiées)
-
-
+// Routes PUBLIQUES (non authentifiees)
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login',    [AuthController::class, 'login']);
 
@@ -51,8 +50,7 @@ Route::get('/statut-forfait',   [StatutForfaitController::class, 'index']);
 Route::get('/commission',       [CommissionController::class, 'getPourcentage']);
 Route::get('/transports/publics', [TransportController::class, 'getPublicTransports']);
 
-// Routes AUTHENTIFIÉES
-
+// Routes AUTHENTIFIEES
 Route::middleware('auth:sanctum')->group(function () {
 
     Route::post('/logout', [AuthController::class, 'logout']);
@@ -60,34 +58,48 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/documents/{id}/download', [DocumentController::class, 'download']);
 
-    //CLIENT
-    Route::middleware('role:client')->prefix('client')->group(function () {
+    // Routes communes pour les statuts (accessibles a tous les authentifies)
+    Route::get('/statut-sur-mesure', [StatutSurMesureController::class, 'index']);
 
+    // CLIENT
+    Route::middleware('role:client')->prefix('client')->group(function () {
         Route::get('/notifications',              [NotificationController::class, 'index']);
         Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
         Route::patch('/notifications/{id}/read',  [NotificationController::class, 'markAsRead']);
         Route::post('/notifications/read-all',    [NotificationController::class, 'markAllAsRead']);
         Route::delete('/notifications/{id}',      [NotificationController::class, 'destroy']);
 
+        // Routes des reservations
         Route::get('/reservations',                       [ReservationController::class, 'mesReservations']);
+        Route::get('/reservations/expired',               [ReservationController::class, 'getExpiredReservations']);
+        Route::get('/reservations/pending',               [ReservationController::class, 'getPendingReservations']);
         Route::get('/reservations/{id}',                  [ReservationController::class, 'show']);
         Route::post('/reservations/{id}/annuler',         [ReservationController::class, 'annuler']);
         Route::post('/reservations/{id}/confirmer',       [ReservationController::class, 'confirmer']);
         Route::get('/reservations/{id}/documents',        [DocumentController::class, 'index']);
         Route::get('/reservations/{id}/details-chambres', [DetailReservationController::class, 'byReservation']);
-        Route::post('/reservations/forfait', [ReservationController::class, 'storeForfait']);
+        Route::post('/reservations/forfait',              [ReservationController::class, 'storeForfait']);
+        
+        // Routes pour reservations expirees
+        Route::get('/forfaits/{id}/verifier-disponibilite', [ReservationController::class, 'verifierDisponibiliteForfait']);
+        Route::post('/forfaits/{id}/refaire',               [ReservationController::class, 'refaireReservationForfait']);
+        Route::post('/reservations/{id}/prolonger',         [ReservationController::class, 'prolongerReservation']);
 
+        // Routes sur mesure
         Route::get('/sur-mesure/transports', [SurMesureController::class, 'getTransportsPublics']);
         Route::get('/sur-mesure/commission', [SurMesureController::class, 'getCommission']);
         Route::post('/sur-mesure/calculer',  [SurMesureController::class, 'calculerPrix']);
         Route::get('/sur-mesure',      [VoyageSurMesureController::class, 'mesDemandes']);
         Route::post('/sur-mesure',     [SurMesureController::class, 'store']);
         Route::get('/sur-mesure/{id}', [VoyageSurMesureController::class, 'show']);
+
+        // Routes pour reservations expirees sur mesure
+        Route::get('/sur-mesure/{id}/verifier-transport', [SurMesureController::class, 'verifierTransport']);
+        Route::post('/sur-mesure/{id}/refaire', [SurMesureController::class, 'refaireReservation']);
     });
 
-    //AGENT
+    // AGENT
     Route::middleware('role:agent')->prefix('agent')->group(function () {
-
         Route::get('/notifications',              [NotificationController::class, 'index']);
         Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
         Route::patch('/notifications/{id}/read',  [NotificationController::class, 'markAsRead']);
@@ -107,6 +119,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/reservations/{reservationId}/documents',  [DocumentController::class, 'index']);
         Route::delete('/documents/{id}',                       [DocumentController::class, 'destroy']);
 
+        // Routes pour les documents sur mesure
+        Route::get('/sur-mesure/{id}/documents',   [DocumentController::class, 'indexSurMesure']);
+        Route::post('/sur-mesure/{id}/documents',  [DocumentController::class, 'uploadSurMesure']);
+
         Route::get('/sur-mesure',      [VoyageSurMesureController::class, 'index']);
         Route::get('/sur-mesure/{id}', [VoyageSurMesureController::class, 'show']);
         Route::put('/sur-mesure/{id}', [VoyageSurMesureController::class, 'update']);
@@ -114,11 +130,21 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/type-transports/forfait', [TypeTransportController::class, 'getForfaitTypes']);
         Route::post('/reservations/{id}/confirmer-annulation-transport',
             [ReservationController::class, 'confirmerAnnulationTransport']);
+
+        // Routes utilisateur pour l'agent (lecture seule)
+        Route::get('/users',          [UserController::class, 'index']);
+        Route::get('/users/{id}',     [UserController::class, 'show']);
     });
 
-    //ADMIN (accès total)
-   
+    // ADMIN (acces total)
     Route::middleware('role:admin')->prefix('admin')->group(function () {
+        // Gestion complete des utilisateurs
+        Route::get('/users',          [UserController::class, 'index']);
+        Route::post('/users',         [UserController::class, 'store']);
+        Route::get('/users/{id}',     [UserController::class, 'show']);
+        Route::put('/users/{id}',     [UserController::class, 'update']);
+        Route::delete('/users/{id}',  [UserController::class, 'destroy']);
+        Route::get('/users/search',   [UserController::class, 'search']);
 
         Route::get('/reservations',         [ReservationController::class, 'index']);
         Route::get('/reservations/{id}',    [ReservationController::class, 'showAgent']);

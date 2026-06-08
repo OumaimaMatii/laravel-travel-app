@@ -15,7 +15,6 @@ use Illuminate\Support\Facades\DB;
 
 class VoyageForfaitController extends Controller
 {
-    // GET /forfaits - Liste tous les forfaits (public)
     public function index()
     {
         $forfaits = VoyageForfait::with([
@@ -37,7 +36,6 @@ class VoyageForfaitController extends Controller
         return VoyageForfaitResource::collection($forfaits);
     }
 
-    // GET /forfaits/{id} - Affiche un forfait spécifique
     public function show($id)
     {
         $forfait = VoyageForfait::with([
@@ -62,7 +60,6 @@ class VoyageForfaitController extends Controller
         return new VoyageForfaitResource($forfait);
     }
 
-    // GET /agent/forfaits - Récupère les forfaits de l'agent connecté
     public function mesForfaits(Request $request)
     {
         $user = $request->user();
@@ -70,7 +67,7 @@ class VoyageForfaitController extends Controller
         if (!in_array($user->role, ['agent', 'admin'])) {
             return response()->json([
                 'success' => false,
-                'message' => 'Non autorisé'
+                'message' => 'Non autorise'
             ], 403);
         }
         
@@ -99,7 +96,6 @@ class VoyageForfaitController extends Controller
         return VoyageForfaitResource::collection($forfaits);
     }
 
-    // GET /type-transports - Récupère les types de transport pour le frontend
     public function getTypesTransport()
     {
         $types = TypeTransport::all();
@@ -109,14 +105,12 @@ class VoyageForfaitController extends Controller
         ]);
     }
 
-    // Extrait la capacité (nombre de places) depuis le nom du bus
     private function extractCapacite($nom)
     {
         preg_match('/(\d+)\s*places?/i', $nom, $matches);
-        return $matches[1] ?? 50; // Valeur par défaut 50 places
+        return $matches[1] ?? 50;
     }
 
-    // POST /forfaits - Crée un nouveau forfait
     public function store(Request $request)
     {
         $request->validate([
@@ -149,7 +143,6 @@ class VoyageForfaitController extends Controller
         DB::beginTransaction();
 
         try {
-            // 1. Création du voyage
             $voyage = Voyage::create([
                 'date_depart' => $request->date_depart,
                 'date_retour' => $request->date_retour,
@@ -158,7 +151,6 @@ class VoyageForfaitController extends Controller
                 'type_voyage_id' => $request->type_voyage_id,
             ]);
 
-            // 2. Création du transport ALLER
             $typeBusAller = TypeTransport::findOrFail($request->type_bus_aller_id);
             $capaciteAller = $this->extractCapacite($typeBusAller->nom);
             
@@ -178,12 +170,10 @@ class VoyageForfaitController extends Controller
 
             $voyage->transports()->attach($transportAller->id, ['ordre' => 1]);
 
-            // 3. Création du transport RETOUR
             $transportRetour = null;
             $nombrePlaces = $capaciteAller;
 
             if ($request->type_bus_retour_id && $request->type_bus_retour_id != $request->type_bus_aller_id) {
-                // Transport retour différent de l'aller
                 $typeBusRetour = TypeTransport::findOrFail($request->type_bus_retour_id);
                 $capaciteRetour = $this->extractCapacite($typeBusRetour->nom);
                 $nombrePlaces = min($capaciteAller, $capaciteRetour);
@@ -204,11 +194,9 @@ class VoyageForfaitController extends Controller
                 
                 $voyage->transports()->attach($transportRetour->id, ['ordre' => 2]);
             } else {
-                // Même transport pour aller et retour
                 $voyage->transports()->attach($transportAller->id, ['ordre' => 2]);
             }
 
-            // 4. Création du forfait
             $forfait = VoyageForfait::create([
                 'voyage_id' => $voyage->id,
                 'titre' => $request->titre,
@@ -223,14 +211,12 @@ class VoyageForfaitController extends Controller
                 'agent_id' => $user ? $user->id : null,
             ]);
 
-            // 5. Ajout des activités
             if ($request->has('activites') && !empty($request->activites)) {
                 $voyage->activites()->sync($request->activites);
             }
 
             DB::commit();
 
-            // Rechargement des relations
             $forfait->load([
                 'voyage.destination',
                 'voyage.destination.ville',
@@ -257,14 +243,13 @@ class VoyageForfaitController extends Controller
         }
     }
 
-    // PUT/PATCH /forfaits/{id} - Modifie un forfait existant
     public function update(Request $request, $id)
     {
         $forfait = VoyageForfait::with('voyage.transports')->findOrFail($id);
         
         $user = $request->user();
         if ($forfait->agent_id !== $user->id && $user->role !== 'admin') {
-            return response()->json(['message' => 'Non autorisé'], 403);
+            return response()->json(['message' => 'Non autorise'], 403);
         }
 
         $request->validate([
@@ -293,7 +278,6 @@ class VoyageForfaitController extends Controller
         DB::beginTransaction();
 
         try {
-            // Mise à jour du voyage
             $voyageData = [];
             if ($request->has('date_depart')) $voyageData['date_depart'] = $request->date_depart;
             if ($request->has('date_retour')) $voyageData['date_retour'] = $request->date_retour;
@@ -305,7 +289,6 @@ class VoyageForfaitController extends Controller
                 $forfait->voyage->update($voyageData);
             }
 
-            // Mise à jour du transport aller
             $transportAller = $forfait->voyage->transports->where('pivot.ordre', 1)->first();
             
             if ($request->has('type_bus_aller_id') && $transportAller) {
@@ -323,7 +306,6 @@ class VoyageForfaitController extends Controller
                 $transportAller->update(['prix' => $request->prix_bus_aller]);
             }
 
-            // Mise à jour du transport retour
             $transportRetour = $forfait->voyage->transports->where('pivot.ordre', 2)->first();
             
             if ($request->has('type_bus_retour_id') && $request->type_bus_retour_id) {
@@ -338,7 +320,6 @@ class VoyageForfaitController extends Controller
                     }
                     $transportRetour->update($updateData);
                 } else {
-                    // Création d'un nouveau transport retour
                     $typeBusRetour = TypeTransport::find($request->type_bus_retour_id);
                     $capaciteRetour = $this->extractCapacite($typeBusRetour->nom);
                     $villeDepart = Ville::find($forfait->voyage->ville_depart_id);
@@ -364,7 +345,6 @@ class VoyageForfaitController extends Controller
                 $transportRetour->update(['prix' => $request->prix_bus_retour]);
             }
 
-            // Mise à jour du forfait
             $forfaitData = [];
             if ($request->has('titre')) $forfaitData['titre'] = $request->titre;
             if ($request->has('description')) $forfaitData['description'] = $request->description;
@@ -385,14 +365,12 @@ class VoyageForfaitController extends Controller
                 $forfait->update($forfaitData);
             }
 
-            // Mise à jour des activités
             if ($request->has('activites')) {
                 $forfait->voyage->activites()->sync($request->activites);
             }
 
             DB::commit();
 
-            // Rechargement des relations
             $forfait->load([
                 'voyage.destination',
                 'voyage.destination.medias',
@@ -419,20 +397,37 @@ class VoyageForfaitController extends Controller
         }
     }
 
-    // DELETE /forfaits/{id} - Supprime un forfait
+    public function verifierDisponibilite(Request $request, $forfaitId)
+    {
+        $forfait = VoyageForfait::with('voyage')->findOrFail($forfaitId);
+        
+        $resultat = [
+            'success' => true,
+            'forfait_id' => $forfait->id,
+            'titre' => $forfait->titre,
+            'places_restantes' => $forfait->places_restantes,
+            'prix_adulte' => $forfait->prix_adulte,
+            'prix_enfant' => $forfait->prix_enfant,
+            'date_depart' => $forfait->voyage->date_depart,
+            'date_retour' => $forfait->voyage->date_retour,
+            'peut_reserver' => $forfait->places_restantes > 0
+        ];
+        
+        return response()->json($resultat);
+    }
+
     public function destroy(Request $request, $id)
     {
         $forfait = VoyageForfait::with('voyage.transports')->findOrFail($id);
         
         $user = $request->user();
         if ($forfait->agent_id !== $user->id && $user->role !== 'admin') {
-            return response()->json(['message' => 'Non autorisé'], 403);
+            return response()->json(['message' => 'Non autorise'], 403);
         }
 
         DB::beginTransaction();
         
         try {
-            // Suppression des transports associés
             foreach ($forfait->voyage->transports as $transport) {
                 $transport->delete();
             }

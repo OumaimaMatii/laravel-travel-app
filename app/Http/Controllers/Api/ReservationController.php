@@ -50,6 +50,49 @@ class ReservationController extends Controller
         return ReservationResource::collection($reservations);
     }
 
+    // GET /client/reservations/expired - Réservations expirées du client
+    public function getExpiredReservations(Request $request)
+    {
+        $user = $request->user();
+
+        $expiredReservations = Reservation::with([
+            'voyage.destination',
+            'voyage.forfait',
+            'voyage.transports',
+            'documents',
+        ])
+        ->where('user_id', $user->id)
+        ->where('statut', 'annulee')
+        ->where('confirmation_deadline', '<', Carbon::now())
+        ->orderBy('confirmation_deadline', 'desc')
+        ->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => ReservationResource::collection($expiredReservations)
+        ]);
+    }
+
+    // GET /client/reservations/pending - Réservations en attente du client (non expirées)
+    public function getPendingReservations(Request $request)
+    {
+        $user = $request->user();
+
+        $pendingReservations = Reservation::with([
+            'voyage.destination',
+            'voyage.destination.medias',
+            'voyage.destination.ville',
+            'documents',
+        ])
+        ->where('user_id', $user->id)
+        ->whereIn('statut', ['en_attente', 'en_attente_confirmation'])
+        ->where('confirmation_deadline', '>', Carbon::now())
+        ->orderBy('confirmation_deadline', 'asc')
+        ->get();
+
+        return ReservationResource::collection($pendingReservations);
+    }
+
     // GET /client/reservations/{id} - Détail complet d'une réservation (client)
     public function show($id)
     {
@@ -117,14 +160,13 @@ class ReservationController extends Controller
             ->firstOrFail();
 
         if ($reservation->statut === 'confirmee') {
-            return response()->json(['message' => 'Impossible d\'annuler une réservation confirmée.'], 400);
+            return response()->json(['message' => 'Impossible d\'annuler une reservation confirmee.'], 400);
         }
 
         DB::beginTransaction();
         try {
             $totalPersonnes = $reservation->nb_adultes + $reservation->nb_enfants;
 
-            // Libération des places si c'est un forfait
             if ($reservation->type_verification === 'forfait') {
                 $forfait = VoyageForfait::where('voyage_id', $reservation->voyage_id)->first();
                 if ($forfait) {
@@ -137,13 +179,13 @@ class ReservationController extends Controller
 
             $this->sendNotification(
                 $reservation->user_id,
-                'Réservation annulée',
-                "Votre réservation #{$reservation->id} a été annulée.",
+                'Reservation annulee',
+                "Votre reservation #{$reservation->id} a ete annulee.",
                 'annulation',
                 '/client/reservations'
             );
 
-            return response()->json(['message' => 'Réservation annulée avec succès.']);
+            return response()->json(['message' => 'Reservation annulee avec succes.']);
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json(['error' => $e->getMessage()], 500);
@@ -156,12 +198,11 @@ class ReservationController extends Controller
         $user        = $request->user();
         $reservation = Reservation::with('voyage')->where('user_id', $user->id)->findOrFail($id);
 
-        // Vérification du délai de confirmation
         if ($reservation->confirmation_deadline) {
             $deadline = Carbon::parse($reservation->confirmation_deadline);
             if ($deadline->isPast()) {
                 return response()->json([
-                    'message' => 'Délai de confirmation dépassé. Veuillez refaire une réservation.',
+                    'message' => 'Delai de confirmation depasse. Veuillez refaire une reservation.',
                 ], 400);
             }
         }
@@ -174,13 +215,13 @@ class ReservationController extends Controller
 
         $this->sendNotification(
             $reservation->user_id,
-            'Réservation confirmée',
-            "Votre réservation #{$reservation->id} est confirmée. Bon voyage !",
+            'Reservation confirmee',
+            "Votre reservation #{$reservation->id} est confirmee. Bon voyage !",
             'reservation',
             "/client/reservations/{$reservation->id}"
         );
 
-        return response()->json(['success' => true, 'message' => 'Réservation confirmée.']);
+        return response()->json(['success' => true, 'message' => 'Reservation confirmee.']);
     }
 
     // POST /client/reservations/forfait - Création d'une réservation forfait
@@ -203,12 +244,10 @@ class ReservationController extends Controller
             $forfait        = VoyageForfait::findOrFail($request->voyage_forfait_id);
             $totalPersonnes = $request->nb_adultes + ($request->nb_enfants ?? 0);
 
-            // Vérification de la disponibilité
             if ($forfait->places_restantes < $totalPersonnes) {
                 return response()->json(['error' => 'Plus assez de places disponibles.'], 400);
             }
 
-            // Réservation temporaire des places
             $forfait->decrement('places_restantes', $totalPersonnes);
 
             $reservation = Reservation::create([
@@ -219,11 +258,11 @@ class ReservationController extends Controller
                 'date_reservation'      => now(),
                 'statut'                => 'en_attente',
                 'montant_total'         => $forfait->getPrixTotal($request->nb_adultes, $request->nb_enfants ?? 0),
-                'confirmation_deadline' => Carbon::now()->addHour(), // Délai de 1h
+                'confirmation_deadline' => Carbon::now()->addHour(),
                 'type_verification'     => 'forfait',
+                'notification_envoyee'  => false,
             ]);
 
-            // Création des voyageurs associés
             foreach ($request->voyageurs as $vData) {
                 $reservation->voyageurs()->create($vData);
             }
@@ -232,8 +271,8 @@ class ReservationController extends Controller
 
             $this->sendNotification(
                 $user->id,
-                'Réservation en attente - 1h pour confirmer',
-                "Votre réservation #{$reservation->id} est en attente. Confirmez-la dans l'heure pour valider vos places.",
+                'Reservation en attente - 1h pour confirmer',
+                "Votre reservation #{$reservation->id} est en attente. Confirmez-la dans l'heure pour valider vos places.",
                 'reservation',
                 "/client/reservations/{$reservation->id}"
             );
@@ -251,9 +290,8 @@ class ReservationController extends Controller
         $user    = $request->user();
         $forfait = VoyageForfait::with('voyage')->findOrFail($voyageForfaitId);
 
-        // L'agent ne voit que ses propres forfaits
         if ($user->role === 'agent' && $forfait->agent_id !== $user->id) {
-            return response()->json(['message' => 'Non autorisé.'], 403);
+            return response()->json(['message' => 'Non autorise.'], 403);
         }
 
         $reservations = Reservation::with([
@@ -268,7 +306,6 @@ class ReservationController extends Controller
         ->orderBy('created_at', 'desc')
         ->get();
 
-        // Statistiques pour le tableau de bord
         $stats = [
             'total'                  => $reservations->count(),
             'confirmees'             => $reservations->where('statut', 'confirmee')->count(),
@@ -297,7 +334,7 @@ class ReservationController extends Controller
         $user = $request->user();
 
         if (!in_array($user->role, ['agent', 'admin'])) {
-            return response()->json(['message' => 'Non autorisé.'], 403);
+            return response()->json(['message' => 'Non autorise.'], 403);
         }
 
         $reservation = Reservation::with('voyage.transports')->findOrFail($id);
@@ -307,7 +344,6 @@ class ReservationController extends Controller
             $transport      = $reservation->voyage->transports()->first();
             $totalPersonnes = $reservation->nb_adultes + $reservation->nb_enfants;
 
-            // Libération des places temporaires du transport
             if ($transport && $transport->places_reservees_temp >= $totalPersonnes) {
                 $transport->decrement('places_reservees_temp', $totalPersonnes);
             }
@@ -321,16 +357,186 @@ class ReservationController extends Controller
 
             $this->sendNotification(
                 $reservation->user_id,
-                'Réservation annulée',
-                "Votre demande sur mesure #{$reservation->id} a été annulée suite à l'expiration du délai.",
+                'Reservation annulee',
+                "Votre demande sur mesure #{$reservation->id} a ete annulee suite a l'expiration du delai.",
                 'info',
                 '/client/reservations'
             );
 
-            return response()->json(['success' => true, 'message' => 'Annulation confirmée.']);
+            return response()->json(['success' => true, 'message' => 'Annulation confirmee.']);
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    // GET /client/forfaits/{id}/verifier-disponibilite - Vérifie la disponibilité d'un forfait
+    public function verifierDisponibiliteForfait(Request $request, $forfaitId)
+    {
+        $forfait = VoyageForfait::with('voyage')->findOrFail($forfaitId);
+        
+        return response()->json([
+            'success' => true,
+            'forfait_id' => $forfait->id,
+            'titre' => $forfait->titre,
+            'places_restantes' => $forfait->places_restantes,
+            'prix_adulte' => $forfait->prix_adulte,
+            'prix_enfant' => $forfait->prix_enfant,
+            'date_depart' => $forfait->voyage->date_depart,
+            'date_retour' => $forfait->voyage->date_retour,
+            'peut_reserver' => $forfait->places_restantes > 0
+        ]);
+    }
+
+    // POST /client/reservations/{id}/prolonger - Prolonge une réservation forfait expirée de +1 heure
+    public function prolongerReservation(Request $request, $id)
+    {
+        $user = $request->user();
+        
+        $reservation = Reservation::where('id', $id)
+            ->where('user_id', $user->id)
+            ->where('type_verification', 'forfait')
+            ->where('statut', 'annulee')
+            ->firstOrFail();
+        
+        $forfait = $reservation->voyage->forfait;
+        
+        if (!$forfait) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Forfait non trouve'
+            ], 404);
+        }
+        
+        $totalPersonnes = $reservation->nb_adultes + $reservation->nb_enfants;
+        
+        if ($forfait->places_restantes < $totalPersonnes) {
+            return response()->json([
+                'success' => false,
+                'message' => "Plus assez de places. Il reste {$forfait->places_restantes} place(s) disponible(s)."
+            ], 400);
+        }
+        
+        DB::beginTransaction();
+        
+        try {
+            $forfait->decrement('places_restantes', $totalPersonnes);
+            
+            $reservation->update([
+                'statut' => 'en_attente',
+                'confirmation_deadline' => Carbon::now()->addHour(),
+                'notification_envoyee' => false
+            ]);
+            
+            DB::commit();
+            
+            $this->sendNotification(
+                $user->id,
+                'Reservation prolongee',
+                "Votre reservation #{$reservation->id} a ete prolongee d'une heure. Nouveau delai: " . Carbon::now()->addHour()->format('H:i'),
+                'reservation',
+                "/client/reservations/{$reservation->id}"
+            );
+            
+            return response()->json([
+                'success' => true,
+                'message' => 'Reservation prolongee d\'une heure !',
+                'nouvelle_reservation_id' => $reservation->id,
+                'confirmation_deadline' => $reservation->fresh()->confirmation_deadline
+            ]);
+            
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    // POST /client/forfaits/{id}/refaire - Recrée une réservation forfait expirée (avec ressaisie des voyageurs)
+    public function refaireReservationForfait(Request $request, $ancienneReservationId)
+    {
+        $user = $request->user();
+        
+        $ancienneReservation = Reservation::where('id', $ancienneReservationId)
+            ->where('user_id', $user->id)
+            ->where('type_verification', 'forfait')
+            ->where('statut', 'annulee')
+            ->firstOrFail();
+        
+        $forfait = $ancienneReservation->voyage->forfait;
+        
+        if (!$forfait) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Forfait non trouve'
+            ], 404);
+        }
+        
+        $totalPersonnes = $ancienneReservation->nb_adultes + $ancienneReservation->nb_enfants;
+        
+        if ($forfait->places_restantes < $totalPersonnes) {
+            return response()->json([
+                'success' => false,
+                'message' => "Plus assez de places. {$forfait->places_restantes} places disponibles seulement."
+            ], 400);
+        }
+        
+        DB::beginTransaction();
+        
+        try {
+            $forfait->decrement('places_restantes', $totalPersonnes);
+            
+            $request->validate([
+                'voyageurs' => 'required|array|min:1',
+                'voyageurs.*.nom_complet' => 'required|string|max:255',
+                'voyageurs.*.date_naissance' => 'required|date',
+                'voyageurs.*.sexe' => 'required|in:homme,femme',
+                'voyageurs.*.numero_passeport' => 'nullable|string|max:50',
+            ]);
+            
+            $nouvelleReservation = Reservation::create([
+                'user_id' => $user->id,
+                'voyage_id' => $ancienneReservation->voyage_id,
+                'nb_adultes' => $ancienneReservation->nb_adultes,
+                'nb_enfants' => $ancienneReservation->nb_enfants,
+                'date_reservation' => now(),
+                'statut' => 'en_attente',
+                'montant_total' => $ancienneReservation->montant_total,
+                'confirmation_deadline' => Carbon::now()->addHour(),
+                'type_verification' => 'forfait',
+                'notification_envoyee' => false
+            ]);
+            
+            foreach ($request->voyageurs as $vData) {
+                $nouvelleReservation->voyageurs()->create($vData);
+            }
+            
+            DB::commit();
+            
+            $this->sendNotification(
+                $user->id,
+                'Nouvelle reservation forfait creee',
+                "Votre nouvelle reservation #{$nouvelleReservation->id} a ete creee.\n" .
+                "Vous avez 1 heure pour confirmer.",
+                'reservation',
+                "/client/reservations/{$nouvelleReservation->id}"
+            );
+            
+            return response()->json([
+                'success' => true,
+                'message' => 'Nouvelle reservation creee avec succes!',
+                'nouvelle_reservation_id' => $nouvelleReservation->id,
+                'confirmation_deadline' => $nouvelleReservation->confirmation_deadline
+            ]);
+            
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur: ' . $e->getMessage()
+            ], 500);
         }
     }
 }
